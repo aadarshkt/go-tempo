@@ -1,0 +1,15 @@
+package dto
+
+import "github.com/google/uuid"
+
+type TaskDTO struct {
+	Name string `json:"name" binding:"required"`
+	Dependencies []string `json:"dependencies"`
+	Input map[string]any `json:"input"`
+}
+
+type CreateWorkflowRequest struct {
+	Type string `json:"type" binding:"required"` 
+	UserID uuid.UUID `json:"user_id" binding:"required"`
+	Tasks []TaskDTO `json:"tasks" binding:"required,min=1"`
+}
