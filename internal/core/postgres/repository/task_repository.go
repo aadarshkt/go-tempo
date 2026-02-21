@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"go-tempo/internal/domain"
+
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 )
@@ -30,4 +31,9 @@ type TaskRepository interface {
 	// 6. Update Final Status
 	MarkCompleted(ctx context.Context, taskID uuid.UUID, output datatypes.JSON) error
 	MarkFailed(ctx context.Context, taskID uuid.UUID, errMessage string) error
+
+	// 7. Decrement in-degree and get ready tasks
+	// Decrements in_degree for all tasks dependent on completedRefID and returns IDs of tasks that became ready
+	DecrementAndGetReadyTasks(ctx context.Context, executionID uuid.UUID, completedRefID string) ([]uuid.UUID, error)
 }
+

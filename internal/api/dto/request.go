@@ -3,7 +3,8 @@ package dto
 import "github.com/google/uuid"
 
 type TaskDTO struct {
-	Name string `json:"name" binding:"required"`
+	RefID string `json:"ref_id" binding:"required"`
+	Action string `json:"action" binding:"required"`
 	Dependencies []string `json:"dependencies"`
 	Input map[string]any `json:"input"`
 }

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"go-tempo/internal/domain"
 
 	"github.com/google/uuid"
@@ -106,4 +107,39 @@ func (r *taskRepository) MarkFailed(ctx context.Context, taskID uuid.UUID, errMe
 			"status": domain.StatusFailed,
 			"output": datatypes.JSON([]byte(`{"error":"` + errMessage + `"}`)),
 		}).Error
+}
+
+func (r *taskRepository) DecrementAndGetReadyTasks(ctx context.Context, executionID uuid.UUID, completedRefID string) ([]uuid.UUID, error) {
+	var readyTaskIDs []uuid.UUID
+
+	query := `
+		UPDATE tasks 
+		SET in_degree = in_degree - 1,
+		    status = CASE WHEN in_degree - 1 = 0 THEN 'QUEUED' ELSE status END
+		WHERE execution_id = ? 
+		  AND dependencies @> ?
+		RETURNING id, in_degree
+	`
+
+	depParam := fmt.Sprintf(`["%s"]`, completedRefID)
+
+	rows, err := r.db.WithContext(ctx).Raw(query, executionID, depParam).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id uuid.UUID
+		var inDegree int
+		if err := rows.Scan(&id, &inDegree); err != nil {
+			return nil, err
+		}
+
+		if inDegree == 0 {
+			readyTaskIDs = append(readyTaskIDs, id)
+		}
+	}
+
+	return readyTaskIDs, nil
 }

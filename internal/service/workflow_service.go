@@ -42,12 +42,14 @@ func (s *workflowService) SubmitWorkflow(ctx context.Context, req dto.CreateWork
     var rootTasks []domain.Task // Tasks with NO dependencies
 
     for _, tDto := range req.Tasks {
-        newTask := domain.NewTask(executionID, tDto.Name)
+        //Converting the dto object to domain object
+        newTask := domain.NewTask(executionID, tDto.RefID, tDto.Action)
         depJSON, _ := json.Marshal(tDto.Dependencies)
         newTask.Dependencies = depJSON
+        newTask.InDegree = len(tDto.Dependencies) // e.g., 0 for roots, 2 if waiting on two tasks
         
         // Logic: Is this a root task?
-        if len(tDto.Dependencies) == 0 {
+        if newTask.InDegree == 0 {
             newTask.Status = domain.StatusQueued // Ready to run immediately!
             rootTasks = append(rootTasks, *newTask)
         } else {
