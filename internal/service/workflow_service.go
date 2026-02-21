@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"go-tempo/internal/api/dto"
 	"go-tempo/internal/core/postgres/repository"
+	"go-tempo/internal/core/redis"
 	"go-tempo/internal/domain"
 
 	"github.com/google/uuid"
@@ -17,12 +18,14 @@ type WorkflowService interface {
 // The Implementation
 type workflowService struct {
     repo  repository.TaskRepository
+    queue redis.TaskQueue
 }
 
 // Constructor
-func NewWorkflowService(repo repository.TaskRepository) WorkflowService {
+func NewWorkflowService(repo repository.TaskRepository, queue redis.TaskQueue) WorkflowService {
     return &workflowService{
-        repo: repo,
+        repo:  repo,
+        queue: queue,
     }
 }
 
@@ -68,9 +71,9 @@ func (s *workflowService) SubmitWorkflow(ctx context.Context, req dto.CreateWork
 
     // 4. QUEUE: Push Root Tasks to Redis
     // Only the tasks with Status=QUEUED go to Redis now
-    // for _, t := range rootTasks {
-    //     // go s.queue.Push(ctx, t.ID.String()) // Run in background for speed
-    // }
+    for _, t := range rootTasks {
+        go s.queue.Push(ctx, t.ID.String()) // Run in background for speed
+    }
 
     return executionID, nil
 }
