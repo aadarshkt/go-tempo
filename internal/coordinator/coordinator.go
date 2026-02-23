@@ -3,26 +3,23 @@ package coordinator
 import (
 	"context"
 	"log"
-
-	"go-tempo/internal/core/postgres/repository"
-	"go-tempo/internal/core/redis"
+	"go-tempo/internal/core/ports"
 	"go-tempo/internal/domain"
-
 	"github.com/google/uuid"
 )
 
 type Coordinator struct {
-	taskRepo     repository.TaskRepository
-	workflowRepo repository.WorkflowRepository
-	queue        redis.TaskQueue
-	eventBus     redis.EventBus
+	taskRepo    ports.TaskRepository
+	workflowRepo ports.WorkflowRepository
+	queue        ports.TaskQueue
+	eventBus     ports.EventBus
 }
 
 func NewCoordinator(
-	taskRepo repository.TaskRepository,
-	workflowRepo repository.WorkflowRepository,
-	queue redis.TaskQueue,
-	bus redis.EventBus,
+	taskRepo ports.TaskRepository,
+	workflowRepo ports.WorkflowRepository,
+	queue ports.TaskQueue,
+	bus ports.EventBus,
 ) *Coordinator {
 	return &Coordinator{
 		taskRepo:     taskRepo,

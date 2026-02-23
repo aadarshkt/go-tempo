@@ -4,8 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"go-tempo/internal/api/dto"
-	"go-tempo/internal/core/postgres/repository"
-	"go-tempo/internal/core/redis"
+	"go-tempo/internal/core/ports"
 	"go-tempo/internal/domain"
 
 	"github.com/google/uuid"
@@ -17,12 +16,12 @@ type WorkflowService interface {
 
 // The Implementation
 type workflowService struct {
-    repo  repository.TaskRepository
-    queue redis.TaskQueue
+    repo  ports.TaskRepository
+    queue ports.TaskQueue
 }
 
 // Constructor
-func NewWorkflowService(repo repository.TaskRepository, queue redis.TaskQueue) WorkflowService {
+func NewWorkflowService(repo ports.TaskRepository, queue ports.TaskQueue) WorkflowService {
     return &workflowService{
         repo:  repo,
         queue: queue,
@@ -31,14 +30,7 @@ func NewWorkflowService(repo repository.TaskRepository, queue redis.TaskQueue) W
 
 func (s *workflowService) SubmitWorkflow(ctx context.Context, req dto.CreateWorkflowRequest) (uuid.UUID, error) {
     // 1. Create the Workflow Entity
-    executionID := uuid.New()
-
-    execution := &domain.WorkflowExecution{
-        ID:           executionID,
-        UserID:       req.UserID,
-        WorkflowType: req.Type,
-        Status:       domain.WorkflowStatus("RUNNING"),
-    }
+    execution := domain.NewWorkflow(req.UserID, req.Type)
 
     // 2. Convert TaskDTOs -> Task Entities
     var tasks []domain.Task
@@ -46,7 +38,7 @@ func (s *workflowService) SubmitWorkflow(ctx context.Context, req dto.CreateWork
 
     for _, tDto := range req.Tasks {
         //Converting the dto object to domain object
-        newTask := domain.NewTask(executionID, tDto.RefID, tDto.Action)
+        newTask := domain.NewTask(execution.ID, tDto.RefID, tDto.Action)
         depJSON, _ := json.Marshal(tDto.Dependencies)
         newTask.Dependencies = depJSON
         newTask.InDegree = len(tDto.Dependencies) // e.g., 0 for roots, 2 if waiting on two tasks
@@ -75,5 +67,5 @@ func (s *workflowService) SubmitWorkflow(ctx context.Context, req dto.CreateWork
         go s.queue.Push(ctx, t.ID.String()) // Run in background for speed
     }
 
-    return executionID, nil
+    return execution.ID, nil
 }

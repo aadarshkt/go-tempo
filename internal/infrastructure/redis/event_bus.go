@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"go-tempo/internal/domain" // Update with your actual module path
-
 	"github.com/redis/go-redis/v9"
 )
 

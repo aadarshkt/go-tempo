@@ -15,7 +15,7 @@ type taskRepository struct {
 }
 
 // NewTaskRepository creates a new instance of TaskRepository
-func NewTaskRepository(db *gorm.DB) TaskRepository {
+func NewTaskRepository(db *gorm.DB) *taskRepository {
 	return &taskRepository{db: db}
 }
 

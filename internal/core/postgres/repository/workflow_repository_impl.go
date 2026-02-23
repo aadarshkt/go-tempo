@@ -5,6 +5,7 @@ import (
 	"go-tempo/internal/domain"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"go-tempo/internal/core/ports"
 )
 
 type workflowRepository struct {
@@ -12,7 +13,7 @@ type workflowRepository struct {
 }
 
 // NewWorkflowRepository creates a new instance of WorkflowRepository
-func NewWorkflowRepository(db *gorm.DB) WorkflowRepository {
+func NewWorkflowRepository(db *gorm.DB) ports.WorkflowRepository {
 	return &workflowRepository{db: db}
 }
 

@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // TaskHandler is the blueprint for any function that does work
@@ -15,15 +16,34 @@ type TaskRegistry map[string]TaskHandler
 func InitRegistry() TaskRegistry {
 	registry := make(TaskRegistry)
 
-	registry["send_email"] = func(ctx context.Context, input []byte) ([]byte, error) {
-		// Example: Parse input JSON, call an external API (like SendGrid)
-		fmt.Printf("Sending email with payload: %s\n", string(input))
-		return []byte(`{"status": "success", "email_id": "123"}`), nil
+	registry["create_employee_profile"] = func(ctx context.Context, input []byte) ([]byte, error) {
+		fmt.Printf("Creating employee profile with payload: %s\n", string(input))
+		time.Sleep(10 * time.Second)
+		return []byte(`{"status": "success", "employee_id": "EMP-12345", "profile_created": true}`), nil
 	}
 
-	registry["charge_card"] = func(ctx context.Context, input []byte) ([]byte, error) {
-		fmt.Printf("Charging card with payload: %s\n", string(input))
-		return []byte(`{"transaction_id": "txn_999"}`), nil
+	registry["setup_email_account"] = func(ctx context.Context, input []byte) ([]byte, error) {
+		fmt.Printf("Setting up email account with payload: %s\n", string(input))
+		time.Sleep(10 * time.Second)
+		return []byte(`{"status": "success", "email": "john.doe@company.com", "mailbox_created": true}`), nil
+	}
+
+	registry["assign_equipment"] = func(ctx context.Context, input []byte) ([]byte, error) {
+		fmt.Printf("Assigning equipment with payload: %s\n", string(input))
+		time.Sleep(10 * time.Second)
+		return []byte(`{"status": "success", "laptop_id": "LT-789", "monitor_id": "MN-456", "assigned": true}`), nil
+	}
+
+	registry["enroll_benefits"] = func(ctx context.Context, input []byte) ([]byte, error) {
+		fmt.Printf("Enrolling in benefits with payload: %s\n", string(input))
+		time.Sleep(10 * time.Second)
+		return []byte(`{"status": "success", "health_plan": "Premium PPO", "401k_enrolled": true}`), nil
+	}
+
+	registry["schedule_orientation"] = func(ctx context.Context, input []byte) ([]byte, error) {
+		fmt.Printf("Scheduling orientation with payload: %s\n", string(input))
+		time.Sleep(10 * time.Second)
+		return []byte(`{"status": "success", "orientation_date": "2026-03-01", "calendar_invite_sent": true}`), nil
 	}
 
 	return registry
