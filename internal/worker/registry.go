@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -44,6 +45,29 @@ func InitRegistry() TaskRegistry {
 		fmt.Printf("Scheduling orientation with payload: %s\n", string(input))
 		time.Sleep(10 * time.Second)
 		return []byte(`{"status": "success", "orientation_date": "2026-03-01", "calendar_invite_sent": true}`), nil
+	}
+
+	// Test function: Always fails to simulate task errors
+	registry["failing_task"] = func(ctx context.Context, input []byte) ([]byte, error) {
+		fmt.Printf("Failing task executed with payload: %s\n", string(input))
+		return nil, errors.New("simulated task failure")
+	}
+
+	// Test function: Long-running task that respects context cancellation (for timeout testing)
+	registry["timeout_task"] = func(ctx context.Context, input []byte) ([]byte, error) {
+		fmt.Printf("Long-running task started with payload: %s\n", string(input))
+		
+		// Run for 10 seconds but check for cancellation every 100ms
+		for i := 0; i < 100; i++ {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		
+		return []byte(`{"status": "success", "completed": true}`), nil
 	}
 
 	return registry

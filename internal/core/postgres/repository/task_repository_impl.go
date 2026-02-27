@@ -104,9 +104,41 @@ func (r *taskRepository) MarkFailed(ctx context.Context, taskID uuid.UUID, errMe
 		Model(&domain.Task{}).
 		Where("id = ?", taskID).
 		Updates(map[string]interface{}{
-			"status": domain.StatusFailed,
-			"output": datatypes.JSON([]byte(`{"error":"` + errMessage + `"}`)),
+			"status":     domain.StatusFailed,
+			"last_error": errMessage,
+			"output":     datatypes.JSON([]byte(`{"error":"` + errMessage + `"}`)),
 		}).Error
+}
+
+func (r *taskRepository) MarkSkipped(ctx context.Context, taskID uuid.UUID) error {
+	return r.db.WithContext(ctx).
+		Model(&domain.Task{}).
+		Where("id = ?", taskID).
+		Updates(map[string]interface{}{
+			"status": domain.StatusSkipped,
+			"output": datatypes.JSON([]byte(`{"skipped": true, "reason": "parent task failed"}`)),
+		}).Error
+}
+
+func (r *taskRepository) IncrementRetryCount(ctx context.Context, taskID uuid.UUID, currentVersion int) error {
+	result := r.db.WithContext(ctx).
+		Model(&domain.Task{}).
+		Where("id = ? AND version = ?", taskID, currentVersion).
+		Updates(map[string]interface{}{
+			"retry_count": gorm.Expr("retry_count + 1"),
+			"status":      domain.StatusPending,
+			"version":     currentVersion + 1,
+		})
+	
+	if result.Error != nil {
+		return result.Error
+	}
+	
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	
+	return nil
 }
 
 func (r *taskRepository) DecrementAndGetReadyTasks(ctx context.Context, executionID uuid.UUID, completedRefID string) ([]uuid.UUID, error) {
@@ -122,6 +154,42 @@ func (r *taskRepository) DecrementAndGetReadyTasks(ctx context.Context, executio
 	`
 
 	depParam := fmt.Sprintf(`["%s"]`, completedRefID)
+
+	rows, err := r.db.WithContext(ctx).Raw(query, executionID, depParam).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id uuid.UUID
+		var inDegree int
+		if err := rows.Scan(&id, &inDegree); err != nil {
+			return nil, err
+		}
+
+		if inDegree == 0 {
+			readyTaskIDs = append(readyTaskIDs, id)
+		}
+	}
+
+	return readyTaskIDs, nil
+}
+
+func (r *taskRepository) DecrementAndSetSkipHint(ctx context.Context, executionID uuid.UUID, failedRefID string) ([]uuid.UUID, error) {
+	var readyTaskIDs []uuid.UUID
+
+	query := `
+		UPDATE tasks 
+		SET in_degree = in_degree - 1,
+		    skip_hint = true,
+		    status = CASE WHEN in_degree - 1 = 0 THEN 'QUEUED' ELSE status END
+		WHERE execution_id = ? 
+		  AND dependencies @> ?
+		RETURNING id, in_degree
+	`
+
+	depParam := fmt.Sprintf(`["%s"]`, failedRefID)
 
 	rows, err := r.db.WithContext(ctx).Raw(query, executionID, depParam).Rows()
 	if err != nil {

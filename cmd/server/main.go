@@ -52,7 +52,7 @@ func main() {
 
     // 7. Init Registry and Worker
     registry := worker.InitRegistry()
-    w := worker.NewWorker(taskQueue, taskRepo, eventBus, registry)
+    w := worker.NewWorker(taskQueue, taskRepo, workflowRepo, eventBus, registry)
 
     // 8. Start 10 concurrent worker threads in the background
     w.StartPool(context.Background(), 10)

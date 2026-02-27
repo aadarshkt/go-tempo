@@ -15,6 +15,7 @@ const (
 	StatusRunning   TaskStatus = "RUNNING"
 	StatusCompleted TaskStatus = "COMPLETED"
 	StatusFailed    TaskStatus = "FAILED"
+	StatusSkipped   TaskStatus = "SKIPPED"
 )
 
 type Task struct {
@@ -28,12 +29,15 @@ type Task struct {
 
 	Status       TaskStatus     `gorm:"type:varchar(20);index;default:'PENDING'"`
 	RetryCount   int            `gorm:"default:0"`
+	MaxRetries   int            `gorm:"default:3"`
+	LastError    string         `gorm:"type:text"`
 	
 	// Stores array of RefIDs: ["step_1", "step_2"]
 	Dependencies datatypes.JSON `gorm:"type:jsonb"` 
 	
 	// NEW: Topological Sort Counter
-	InDegree     int            `gorm:"default:0"` 
+	InDegree     int            `gorm:"default:0"`
+	SkipHint     bool           `gorm:"default:false"` 
 	
 	WorkerID     *string        `gorm:"type:varchar(100);index"`
 	Version      int            `gorm:"default:1"`

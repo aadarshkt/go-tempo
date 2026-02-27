@@ -22,8 +22,14 @@ type EventBus interface {
 	// Publish "Task A is done" to Redis Pub/Sub
 	PublishTaskCompleted(ctx context.Context, event domain.TaskCompletedEvent) error
 
-	// Subscribe to events (Used by Coordinator)
+	// Publish "Task A terminated" (failed or skipped)
+	PublishTaskTerminated(ctx context.Context, event domain.TaskTerminatedEvent) error
+
+	// Subscribe to completion events (Used by Coordinator)
 	SubscribeToEvents(ctx context.Context) (<-chan domain.TaskCompletedEvent, error)
+
+	// Subscribe to termination events (failed/skipped) (Used by Coordinator)
+	SubscribeToTerminationEvents(ctx context.Context) (<-chan domain.TaskTerminatedEvent, error)
 }
 
 // TaskRepository represents the task repository operations
@@ -50,12 +56,21 @@ type TaskRepository interface {
 	// 6. Update Final Status
 	MarkCompleted(ctx context.Context, taskID uuid.UUID, output datatypes.JSON) error
 	MarkFailed(ctx context.Context, taskID uuid.UUID, errMessage string) error
+	MarkSkipped(ctx context.Context, taskID uuid.UUID) error
 
-	// 7. Decrement in-degree and get ready tasks
+	// 7. Retry Management
+	// Increments retry_count and resets status to PENDING using optimistic locking
+	IncrementRetryCount(ctx context.Context, taskID uuid.UUID, currentVersion int) error
+
+	// 8. Decrement in-degree and get ready tasks
 	// Decrements in_degree for all tasks dependent on completedRefID and returns IDs of tasks that became ready
 	DecrementAndGetReadyTasks(ctx context.Context, executionID uuid.UUID, completedRefID string) ([]uuid.UUID, error)
 
-	// 8. Check if all tasks in a workflow execution are completed
+	// 9. Decrement in-degree and set skip hint for failed parent
+	// Like DecrementAndGetReadyTasks but also sets skip_hint=true for all children
+	DecrementAndSetSkipHint(ctx context.Context, executionID uuid.UUID, failedRefID string) ([]uuid.UUID, error)
+
+	// 10. Check if all tasks in a workflow execution are completed
 	// Returns true if all tasks have status COMPLETED, false otherwise
 	AreAllTasksCompleted(ctx context.Context, executionID uuid.UUID) (bool, error)
 }

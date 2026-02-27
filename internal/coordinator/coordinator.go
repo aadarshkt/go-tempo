@@ -40,6 +40,12 @@ func (c *Coordinator) Start(ctx context.Context) {
 		log.Fatalf("Failed to subscribe to event bus: %v", err)
 	}
 
+	// Subscribe to termination events (failed/skipped)
+	terminationChannel, err := c.eventBus.SubscribeToTerminationEvents(ctx)
+	if err != nil {
+		log.Fatalf("Failed to subscribe to termination events: %v", err)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -48,6 +54,9 @@ func (c *Coordinator) Start(ctx context.Context) {
 
 		case event := <-eventChannel:
 			c.handleTaskCompleted(ctx, event)
+
+		case event := <-terminationChannel:
+			c.handleTaskTerminated(ctx, event)
 		}
 	}
 }
@@ -106,4 +115,29 @@ func (c *Coordinator) checkIfWorkflowFinished(ctx context.Context, executionID u
 	}
 
 	log.Printf("Workflow %s marked as COMPLETED", executionID)
+}
+
+// handleTaskTerminated propagates skip hints to child tasks when a task is terminated (failed or skipped)
+func (c *Coordinator) handleTaskTerminated(ctx context.Context, event domain.TaskTerminatedEvent) {
+	log.Printf("Coordinator: Task %s (%s) terminated with type '%s': %s. Propagating skip hint...", 
+		event.RefID, event.TaskID, event.Type, event.Error)
+
+	// Use the specialized method that sets skip_hint=true for children
+	readyTaskIDs, err := c.taskRepo.DecrementAndSetSkipHint(ctx, event.ExecutionID, event.RefID)
+	if err != nil {
+		log.Printf("Database error while decrementing for terminated task: %v\n", err)
+		return
+	}
+
+	// Push newly unblocked tasks to the queue (they have skip_hint=true in DB)
+	for _, taskID := range readyTaskIDs {
+		log.Printf("Coordinator: Task %s is now unblocked (will be skipped). Queuing...", taskID)
+
+		err := c.queue.Push(ctx, taskID.String())
+		if err != nil {
+			log.Printf("Failed to push task %s to queue: %v\n", taskID, err)
+		}
+	}
+
+	// No workflow completion check - workflow is already marked FAILED by worker for failed tasks
 }
