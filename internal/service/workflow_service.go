@@ -43,6 +43,10 @@ func (s *workflowService) SubmitWorkflow(ctx context.Context, req dto.CreateWork
         newTask.Dependencies = depJSON
         newTask.InDegree = len(tDto.Dependencies) // e.g., 0 for roots, 2 if waiting on two tasks
         
+        // Map input data
+        inputJSON, _ := json.Marshal(tDto.Input)
+        newTask.Input = inputJSON
+        
         // Logic: Is this a root task?
         if newTask.InDegree == 0 {
             newTask.Status = domain.StatusQueued // Ready to run immediately!
@@ -64,7 +68,12 @@ func (s *workflowService) SubmitWorkflow(ctx context.Context, req dto.CreateWork
     // 4. QUEUE: Push Root Tasks to Redis
     // Only the tasks with Status=QUEUED go to Redis now
     for _, t := range rootTasks {
-        go s.queue.Push(ctx, t.ID.String()) // Run in background for speed
+        err := s.queue.Push(ctx, t.ID.String())
+        if err != nil {
+            // Log but continue - task is in DB as QUEUED, can be retried
+            // In production, consider adding a retry mechanism here
+            return uuid.Nil, err
+        }
     }
 
     return execution.ID, nil

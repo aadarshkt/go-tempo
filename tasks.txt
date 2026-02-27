@@ -1,0 +1,5 @@
+1. Implement retry mechanism.
+2. Divide ports.go into multiple files.
+3. error handling like queue.push may fail.
+4. Implement worker stopping midway when one of the parent tasks in failed after maxTries. 
+5. Sweeper functionality. it tasks are pending/running for too long mark them as dead/failed.

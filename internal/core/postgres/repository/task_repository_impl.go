@@ -82,7 +82,7 @@ func (r *taskRepository) CountPendingParents(ctx context.Context, executionID uu
 	var count int64
 	err := r.db.WithContext(ctx).
 		Model(&domain.Task{}).
-		Where("execution_id = ? AND name IN ? AND status != ?", 
+		Where("execution_id = ? AND ref_id IN ? AND status != ?", 
 			executionID, parentNames, domain.StatusCompleted).
 		Count(&count).Error
 	
@@ -142,4 +142,18 @@ func (r *taskRepository) DecrementAndGetReadyTasks(ctx context.Context, executio
 	}
 
 	return readyTaskIDs, nil
+}
+
+func (r *taskRepository) AreAllTasksCompleted(ctx context.Context, executionID uuid.UUID) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&domain.Task{}).
+		Where("execution_id = ? AND status != ?", executionID, domain.StatusCompleted).
+		Count(&count).Error
+	
+	if err != nil {
+		return false, err
+	}
+	
+	return count == 0, nil
 }

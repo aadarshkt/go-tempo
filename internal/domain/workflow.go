@@ -38,12 +38,12 @@ func NewWorkflow(userID uuid.UUID, workflowType string) *WorkflowExecution {
 		ID:           uuid.New(),
 		UserID:       userID,
 		WorkflowType: workflowType,
-		Status:       "RUNNING",
+		Status:       WorkflowRunning,
 		CreatedAt:    time.Now(),
 	}
 }
 
 // --- METHODS ---
 func (w *WorkflowExecution) IsFinished() bool {
-	return w.Status == "COMPLETED" || w.Status == "FAILED"
+	return w.Status == WorkflowCompleted || w.Status == WorkflowFailed
 }

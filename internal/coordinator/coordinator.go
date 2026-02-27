@@ -2,9 +2,10 @@ package coordinator
 
 import (
 	"context"
-	"log"
 	"go-tempo/internal/core/ports"
 	"go-tempo/internal/domain"
+	"log"
+
 	"github.com/google/uuid"
 )
 
@@ -74,24 +75,31 @@ func (c *Coordinator) handleTaskCompleted(ctx context.Context, event domain.Task
 	}
 
 	// 3. Workflow Completion Check
-	// If readyTaskIDs is empty, we should check if ALL tasks in this execution are COMPLETED.
-	// If yes, we mark the WorkflowExecution status as "COMPLETED".
+	// In Kahn's algorithm, when a terminal node (task with no children) completes,
+	// readyTaskIDs will be empty. This is an efficient filter to check for workflow completion.
 	if len(readyTaskIDs) == 0 {
 		c.checkIfWorkflowFinished(ctx, event.ExecutionID)
 	}
 }
 
 func (c *Coordinator) checkIfWorkflowFinished(ctx context.Context, executionID uuid.UUID) {
-	// Check if any tasks are still PENDING, QUEUED, or RUNNING.
-	// If count == 0, mark WorkflowExecution as COMPLETED.
-	// For now, we'll implement a simple version that marks as completed
-	// You would implement a repo method to check if any tasks are still in progress
+	// Check if all tasks in this workflow execution are completed
+	allCompleted, err := c.taskRepo.AreAllTasksCompleted(ctx, executionID)
+	if err != nil {
+		log.Printf("Failed to check workflow %s completion status: %v\n", executionID, err)
+		return
+	}
 
-	log.Printf("Checking if workflow %s is finished...", executionID)
+	if !allCompleted {
+		log.Printf("Workflow %s still has tasks in progress", executionID)
+		return
+	}
 
-	// TODO: Implement a method in TaskRepository to count pending/running tasks
-	// For now, we'll assume if no tasks are ready and we got here, workflow is done
-	err := c.workflowRepo.UpdateStatus(ctx, executionID, "COMPLETED")
+	log.Printf("All tasks completed for workflow %s. Marking as COMPLETED...", executionID)
+
+	// UpdateStatus is idempotent - it only updates if status is different.
+	// This prevents duplicate logs when multiple terminal tasks complete simultaneously.
+	err = c.workflowRepo.UpdateStatus(ctx, executionID, string(domain.WorkflowCompleted))
 	if err != nil {
 		log.Printf("Failed to mark workflow %s as completed: %v\n", executionID, err)
 		return

@@ -6,7 +6,7 @@ type TaskDTO struct {
 	RefID string `json:"ref_id" binding:"required"`
 	Action string `json:"action" binding:"required"`
 	Dependencies []string `json:"dependencies"`
-	Input map[string]any `json:"input"`
+	Input map[string]any `json:"input" binding:"required"`
 }
 
 type CreateWorkflowRequest struct {

@@ -54,6 +54,10 @@ type TaskRepository interface {
 	// 7. Decrement in-degree and get ready tasks
 	// Decrements in_degree for all tasks dependent on completedRefID and returns IDs of tasks that became ready
 	DecrementAndGetReadyTasks(ctx context.Context, executionID uuid.UUID, completedRefID string) ([]uuid.UUID, error)
+
+	// 8. Check if all tasks in a workflow execution are completed
+	// Returns true if all tasks have status COMPLETED, false otherwise
+	AreAllTasksCompleted(ctx context.Context, executionID uuid.UUID) (bool, error)
 }
 
 // WorkflowRepository represents the workflow repository operations

@@ -1,0 +1,50 @@
+services:
+  # 1. The PostgreSQL Database Service
+  postgres:
+    image: postgres:18-alpine
+    container_name: workflow_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: workflow_db
+    ports:
+      - "5432:5432" # Maps localhost:5432 to container:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Prevents data loss on restart
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d workflow_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. The Redis Queue/PubSub Service
+  redis:
+    image: redis:8.6.1-alpine
+    container_name: workflow_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data # Persists the queue data
+
+  # 3. Your Go Workflow Engine Service
+  app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: workflow_api
+    ports:
+      - "8080:8080"
+    environment:
+      # Notice the hosts are "postgres" and "redis" (the service names), not "localhost"
+      - DB_URL=host=postgres user=postgres password=postgres dbname=workflow_db port=5432 sslmode=disable
+      - REDIS_ADDR=redis:6379 
+    depends_on:
+      postgres:
+        condition: service_healthy # Waits for DB to be fully ready
+      redis:
+        condition: service_started
+
+# Define the named volumes so data survives container restarts
+volumes:
+  postgres_data:
+  redis_data:

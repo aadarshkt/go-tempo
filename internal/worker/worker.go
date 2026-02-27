@@ -11,6 +11,7 @@ import (
 )
 
 type Worker struct {
+	workerID string
 	queue    ports.TaskQueue
 	repo     ports.TaskRepository
 	eventBus ports.EventBus
@@ -19,6 +20,7 @@ type Worker struct {
 
 func NewWorker(q ports.TaskQueue, r ports.TaskRepository, bus ports.EventBus, reg TaskRegistry) *Worker {
 	return &Worker{
+		workerID: uuid.New().String(),
 		queue:    q,
 		repo:     r,
 		eventBus: bus,
@@ -48,7 +50,15 @@ func (w *Worker) ProcessNextTask(ctx context.Context) {
 		return
 	}
 
-	// 3. EXECUTE: Find the right function and run it
+	// 3. CLAIM: Attempt to claim the task with optimistic locking
+	err = w.repo.ClaimTask(ctx, task.ID, w.workerID, task.Version)
+	if err != nil {
+		log.Printf("Worker %s failed to claim task %s (already claimed by another worker): %v", w.workerID, task.RefID, err)
+		return
+	}
+	log.Printf("Worker %s claimed task %s", w.workerID, task.RefID)
+
+	// 4. EXECUTE: Find the right function and run it
 	handler, exists := w.registry[task.Action]
 	if !exists {
 		log.Printf("Worker unknown action: %s", task.Action)
@@ -63,7 +73,7 @@ func (w *Worker) ProcessNextTask(ctx context.Context) {
 		return
 	}
 
-	// 4. COMPLETE: Save output and publish event
+	// 5. COMPLETE: Save output and publish event
 	w.repo.MarkCompleted(ctx, task.ID, output)
 
 	event := domain.TaskCompletedEvent{
@@ -81,12 +91,12 @@ func (w *Worker) StartPool(ctx context.Context, concurrency int) {
 	log.Printf("Starting worker pool with %d concurrent workers...", concurrency)
 
 	for i := 0; i < concurrency; i++ {
-		go func(workerID int) {
-			log.Printf("Worker thread %d started", workerID)
+		go func(threadID int) {
+			log.Printf("Worker thread %d (ID: %s) started", threadID, w.workerID)
 			for {
 				select {
 				case <-ctx.Done():
-					log.Printf("Worker thread %d shutting down", workerID)
+					log.Printf("Worker thread %d (ID: %s) shutting down", threadID, w.workerID)
 					return
 				default:
 					w.ProcessNextTask(ctx)

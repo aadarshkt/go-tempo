@@ -1,0 +1,64 @@
+Implementation Instruction: Resilient Task Retry & DAG Failure Propagation
+1. Model & Schema Changes
+domain/task.go: Add StatusSkipped to the TaskStatus constants.
+
+Queue Payload: Add SkipHint bool to the JSON struct used for Redis Queue messages.
+
+Task Model: Ensure RetryCount (int), MaxRetries (int), and LastError (string) exist.
+
+2. Registry Mocks
+Create two functions in the task registry for testing:
+
+FailingTask: Returns a hardcoded error.
+
+TimeoutTask: Simulates a 10s job but respects ctx.Done(). (Set the worker timeout to 2s to force a failure).
+
+3. Worker: Claim & Execute Logic
+Modify the worker's processing loop:
+
+Check SkipHint First: If the message from the queue has SkipHint: true:
+
+Update DB status to StatusSkipped.
+
+Publish a TaskSkipped event to Redis Pub/Sub.
+
+Exit immediately without calling the registry function.
+
+Execution & Retry: If the registry function returns an error:
+
+If RetryCount < MaxRetries: Increment RetryCount, set status to PENDING, and push back to Redis queue.
+
+Else: Update task status to StatusFailed, update Parent Workflow status to StatusFailed, and publish a TaskFailed event.
+
+4. Workflow State Protection
+Edit the MarkWorkflowCompleted function:
+
+Use a conditional update to ensure a FAILED workflow is never overwritten.
+
+SQL Logic: UPDATE workflows SET status = 'COMPLETED' WHERE id = ? AND status != 'FAILED'.
+
+5. Coordinator: Topological In-Degree & Skip Logic
+Update the Coordinator that listens to the Redis Pub/Sub events:
+
+State Management: For each task, track in_degree (int) and skipHint (bool).
+
+On Event (TaskCompleted, TaskFailed, or TaskSkipped):
+
+Find all child tasks of the event's task.
+
+For each child:
+
+Decrement in_degree.
+
+If the event was Failed or Skipped: Set skipHint = true for that child. (Note: Once true, it cannot be changed back to false).
+
+If in_degree == 0:
+
+Push the child task to the Redis queue.
+
+Set the payload's SkipHint equal to the child's skipHint value.
+
+Why this works:
+By checking the skipHint during every reduction, a task with 5 parents only needs one of them to fail to become "tainted." Even if the other 4 parents succeed later, the flag remains true, and the worker will eventually skip the task when the in-degree hits zero.
+
+Would you like me to write the Go struct and the Redis logic for the Coordinator's "Decrement and Taint" step?

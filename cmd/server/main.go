@@ -9,6 +9,7 @@ import (
 	"go-tempo/internal/service"
 	"go-tempo/internal/worker"
 	"log"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -16,7 +17,7 @@ import (
 
 func main() {
     // 1. Set up database connection
-    dsn := "host=localhost user=postgres password=yourpassword dbname=tempo port=5432 sslmode=disable"
+    dsn := "host=localhost user=postgres password=postgres dbname=workflow_db port=5432 sslmode=disable"
     db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
     if err != nil {
         log.Fatal("Failed to connect to database:", err)
@@ -45,9 +46,9 @@ func main() {
     // 5. Initialize service with repository and queue
     workflowSvc := service.NewWorkflowService(taskRepo, taskQueue)
 
-    // 6. Initialize coordinator
+    // 6. Initialize coordinator and start it
     coord := coordinator.NewCoordinator(taskRepo, workflowRepo, taskQueue, eventBus)
-    _ = coord // Coordinator will be started later when needed
+    go coord.Start(context.Background())
 
     // 7. Init Registry and Worker
     registry := worker.InitRegistry()

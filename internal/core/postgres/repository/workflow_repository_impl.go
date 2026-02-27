@@ -2,10 +2,11 @@ package repository
 
 import (
 	"context"
+	"go-tempo/internal/core/ports"
 	"go-tempo/internal/domain"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"go-tempo/internal/core/ports"
 )
 
 type workflowRepository struct {
@@ -30,9 +31,14 @@ func (r *workflowRepository) GetByID(ctx context.Context, executionID uuid.UUID)
 	return &execution, nil
 }
 
+// UpdateStatus updates the workflow execution status.
+// The status check in the WHERE clause prevents duplicate updates when multiple terminal tasks
+// (tasks with no children) complete simultaneously. Each completion triggers a workflow check,
+// but only the first one will actually update the status - subsequent attempts will be no-ops
+// since the status is already set. This eliminates duplicate "workflow completed" log messages.
 func (r *workflowRepository) UpdateStatus(ctx context.Context, executionID uuid.UUID, status string) error {
 	return r.db.WithContext(ctx).
 		Model(&domain.WorkflowExecution{}).
-		Where("id = ?", executionID).
+		Where("id = ? AND status != ?", executionID, status).
 		Update("status", status).Error
 }
