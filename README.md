@@ -14,6 +14,13 @@ A high-performance DAG-based workflow orchestration system built in Go with Post
 
 ---
 
+Sequence Diagram - 
+
+<img width="2459" height="719" alt="go-tempo" src="https://github.com/user-attachments/assets/627cda73-49c2-4586-9eaf-b23aab9467ab" />
+
+
+---
+
 ## Quick Start
 
 ### 1. Start Infrastructure
