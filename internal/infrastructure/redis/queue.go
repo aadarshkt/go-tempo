@@ -13,10 +13,10 @@ type RedisQueue struct {
 	queueName string
 }
 
-func NewRedisQueue(client *redis.Client) *RedisQueue {
+func NewRedisQueue(client *redis.Client, queueName string) *RedisQueue {
 	return &RedisQueue{
 		client:    client,
-		queueName: "workflow:queue:pending",
+		queueName: queueName,
 	}
 }
 

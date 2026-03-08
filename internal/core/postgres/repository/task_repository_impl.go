@@ -216,7 +216,7 @@ func (r *taskRepository) DecrementAndGetReadyTasks(ctx context.Context, executio
 		RETURNING id, in_degree
 	`
 
-	depParam := fmt.Sprintf(`["%%s"]`, completedRefID)
+	depParam := fmt.Sprintf(`["%s"]`, completedRefID)
 
 	rows, err := r.db.WithContext(ctx).Raw(query, executionID, depParam).Rows()
 	if err != nil {

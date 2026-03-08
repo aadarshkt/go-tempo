@@ -2,6 +2,7 @@ package handler
 
 import (
 	"go-tempo/internal/api/dto"
+	"go-tempo/internal/mapper"
 	"go-tempo/internal/metrics"
 	"go-tempo/internal/service"
 	"net/http"
@@ -25,7 +26,10 @@ func (h *WorkflowHandler) SubmitWorkflow(c *gin.Context) {
         return
     }
 
-    executionID, err := h.service.SubmitWorkflow(c.Request.Context(), req)
+    // Convert DTO to domain entities at the API boundary using mapper
+    execution, tasks := mapper.ToWorkflowExecution(req)
+
+    executionID, err := h.service.SubmitWorkflow(c.Request.Context(), execution, tasks)
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return

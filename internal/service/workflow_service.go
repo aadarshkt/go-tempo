@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"go-tempo/internal/api/dto"
 	"go-tempo/internal/core/ports"
 	"go-tempo/internal/domain"
 
@@ -11,7 +9,7 @@ import (
 )
 
 type WorkflowService interface {
-	SubmitWorkflow(ctx context.Context, req dto.CreateWorkflowRequest) (uuid.UUID, error)
+	SubmitWorkflow(ctx context.Context, execution *domain.WorkflowExecution, tasks []domain.Task) (uuid.UUID, error)
 }
 
 // The Implementation
@@ -28,53 +26,48 @@ func NewWorkflowService(repo ports.TaskRepository, queue ports.TaskQueue) Workfl
     }
 }
 
-func (s *workflowService) SubmitWorkflow(ctx context.Context, req dto.CreateWorkflowRequest) (uuid.UUID, error) {
-    // 1. Create the Workflow Entity
-    execution := domain.NewWorkflow(req.UserID, req.Type)
-
-    // 2. Convert TaskDTOs -> Task Entities
-    var tasks []domain.Task
-    var rootTasks []domain.Task // Tasks with NO dependencies
-
-    for _, tDto := range req.Tasks {
-        //Converting the dto object to domain object
-        newTask := domain.NewTask(execution.ID, tDto.RefID, tDto.Action)
-        depJSON, _ := json.Marshal(tDto.Dependencies)
-        newTask.Dependencies = depJSON
-        newTask.InDegree = len(tDto.Dependencies) // e.g., 0 for roots, 2 if waiting on two tasks
-        
-        // Map input data
-        inputJSON, _ := json.Marshal(tDto.Input)
-        newTask.Input = inputJSON
-        
-        // Logic: Is this a root task?
-        if newTask.InDegree == 0 {
-            newTask.Status = domain.StatusQueued // Ready to run immediately!
-            rootTasks = append(rootTasks, *newTask)
-        } else {
-            newTask.Status = domain.StatusPending // Must wait
-        }
-
-        tasks = append(tasks, *newTask)
-    }
-
-    // 3. TRANSACTION: Save Workflow + Tasks to DB
-    // We pass both to the repository so they save together (Atomic)
-    err := s.repo.CreateExecution(ctx, execution, tasks)
-    if err != nil {
+func (s *workflowService) SubmitWorkflow(ctx context.Context, execution *domain.WorkflowExecution, tasks []domain.Task) (uuid.UUID, error) {
+    
+    // Persist workflow and tasks atomically
+    if err := s.persistWorkflow(ctx, execution, tasks); err != nil {
         return uuid.Nil, err
     }
+    
+    // Identify root tasks for enqueueing
+    rootTasks := s.getRootTasks(tasks)
+    
+    // Enqueue root tasks for immediate processing
+    if err := s.enqueueRootTasks(ctx, rootTasks); err != nil {
+        return uuid.Nil, err
+    }
+    
+    return execution.ID, nil
+}
 
-    // 4. QUEUE: Push Root Tasks to Redis
-    // Only the tasks with Status=QUEUED go to Redis now
-    for _, t := range rootTasks {
-        err := s.queue.Push(ctx, t.ID.String())
-        if err != nil {
-            // Log but continue - task is in DB as QUEUED, can be retried
-            // In production, consider adding a retry mechanism here
-            return uuid.Nil, err
+// persistWorkflow saves the workflow and its tasks atomically to the database
+func (s *workflowService) persistWorkflow(ctx context.Context, execution *domain.WorkflowExecution, tasks []domain.Task) error {
+    return s.repo.CreateExecution(ctx, execution, tasks)
+}
+
+// enqueueRootTasks pushes root tasks to the Redis queue for immediate processing
+func (s *workflowService) enqueueRootTasks(ctx context.Context, rootTasks []domain.Task) error {
+    for _, task := range rootTasks {
+        if err := s.queue.Push(ctx, task.ID.String()); err != nil {
+            return err
         }
     }
+    return nil
+}
 
-    return execution.ID, nil
+// getRootTasks filters and returns tasks that have no dependencies (InDegree == 0)
+func (s *workflowService) getRootTasks(tasks []domain.Task) []domain.Task {
+    rootTasks := make([]domain.Task, 0)
+    
+    for _, task := range tasks {
+        if task.InDegree == 0 {
+            rootTasks = append(rootTasks, task)
+        }
+    }
+    
+    return rootTasks
 }

@@ -47,26 +47,33 @@ func main() {
     // 3. Init Redis Client
     rdb := redis.NewRedisClient("localhost:6379")
 
-    // 4. Create the Queue and Bus
-    taskQueue := redis.NewRedisQueue(rdb)
+    // 4. Create the Queues and Bus
+    mainQueue := redis.NewRedisQueue(rdb, "workflow:queue:pending")
+    retryQueue := redis.NewRedisQueue(rdb, "workflow:queue:retry")
     eventBus := redis.NewRedisEventBus(rdb)
 
-    // Start Redis queue depth metrics collector
+    // Start Redis queue depth metrics collectors for both queues
     metrics.StartRedisQueueDepthCollector(rdb, "workflow:queue:pending", 10*time.Second)
+    metrics.StartRedisQueueDepthCollector(rdb, "workflow:queue:retry", 10*time.Second)
 
-    // 5. Initialize service with repository and queue
-    workflowSvc := service.NewWorkflowService(taskRepo, taskQueue)
+    // 5. Initialize service with repository and main queue
+    workflowSvc := service.NewWorkflowService(taskRepo, mainQueue)
 
     // 6. Initialize coordinator and start it
-    coord := coordinator.NewCoordinator(taskRepo, workflowRepo, taskQueue, eventBus)
+    coord := coordinator.NewCoordinator(taskRepo, workflowRepo, mainQueue, eventBus)
     go coord.Start(context.Background())
 
-    // 7. Init Registry and Worker
+    // 7. Init Registry and Workers
     registry := worker.InitRegistry()
-    w := worker.NewWorker(taskQueue, taskRepo, workflowRepo, eventBus, registry)
-
-    // 8. Start 10 concurrent worker threads in the background
-    w.StartPool(context.Background(), 10)
+    
+    // 8. Start worker pools with 9:1 ratio (9 main workers, 1 retry worker)
+    // Main queue workers - pull from mainQueue, push retries to retryQueue
+    mainWorker := worker.NewWorker(mainQueue, retryQueue, taskRepo, workflowRepo, eventBus, registry)
+    go mainWorker.StartPool(context.Background(), 9)
+    
+    // Retry queue workers - pull from retryQueue, push retries back to retryQueue
+    retryWorker := worker.NewWorker(retryQueue, retryQueue, taskRepo, workflowRepo, eventBus, registry)
+    go retryWorker.StartPool(context.Background(), 1)
 
     // 9. Initialize handler with service
     workflowHandler := handler.NewWorkflowHandler(workflowSvc)

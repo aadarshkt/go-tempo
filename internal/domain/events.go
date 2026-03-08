@@ -28,3 +28,14 @@ type TaskTerminatedEvent struct {
 	Error       string              `json:"error"` // Error message (empty for skipped)
 }
 
+// NewTaskTerminatedEvent creates a new TaskTerminatedEvent
+func NewTaskTerminatedEvent(executionID, taskID uuid.UUID, refID string, terminationType TaskTerminationType, errorMsg string) TaskTerminatedEvent {
+	return TaskTerminatedEvent{
+		ExecutionID: executionID,
+		TaskID:      taskID,
+		RefID:       refID,
+		Type:        terminationType,
+		Error:       errorMsg,
+	}
+}
+
