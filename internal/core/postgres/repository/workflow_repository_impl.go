@@ -4,6 +4,8 @@ import (
 	"context"
 	"go-tempo/internal/core/ports"
 	"go-tempo/internal/domain"
+	"go-tempo/internal/metrics"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -19,13 +21,30 @@ func NewWorkflowRepository(db *gorm.DB) ports.WorkflowRepository {
 }
 
 func (r *workflowRepository) Create(ctx context.Context, execution *domain.WorkflowExecution) error {
-	return r.db.WithContext(ctx).Create(execution).Error
+	start := time.Now()
+	defer func() {
+		metrics.DBQueryDuration.WithLabelValues("create_workflow").Observe(time.Since(start).Seconds())
+	}()
+	
+	err := r.db.WithContext(ctx).Create(execution).Error
+	if err != nil {
+		metrics.DBQueryErrorsTotal.WithLabelValues("create_workflow").Inc()
+	}
+	return err
 }
 
 func (r *workflowRepository) GetByID(ctx context.Context, executionID uuid.UUID) (*domain.WorkflowExecution, error) {
+	start := time.Now()
+	defer func() {
+		metrics.DBQueryDuration.WithLabelValues("get_workflow").Observe(time.Since(start).Seconds())
+	}()
+	
 	var execution domain.WorkflowExecution
 	err := r.db.WithContext(ctx).Where("id = ?", executionID).First(&execution).Error
 	if err != nil {
+		if err != gorm.ErrRecordNotFound {
+			metrics.DBQueryErrorsTotal.WithLabelValues("get_workflow").Inc()
+		}
 		return nil, err
 	}
 	return &execution, nil
@@ -38,8 +57,18 @@ func (r *workflowRepository) GetByID(ctx context.Context, executionID uuid.UUID)
 // since the status is already set. This eliminates duplicate "workflow completed" log messages.
 // Additionally, once a workflow is FAILED, it cannot be overwritten to COMPLETED.
 func (r *workflowRepository) UpdateStatus(ctx context.Context, executionID uuid.UUID, status string) error {
-	return r.db.WithContext(ctx).
+	start := time.Now()
+	defer func() {
+		metrics.DBQueryDuration.WithLabelValues("update_workflow_status").Observe(time.Since(start).Seconds())
+	}()
+	
+	err := r.db.WithContext(ctx).
 		Model(&domain.WorkflowExecution{}).
 		Where("id = ? AND status != ? AND status != 'FAILED'", executionID, status).
 		Update("status", status).Error
+	
+	if err != nil {
+		metrics.DBQueryErrorsTotal.WithLabelValues("update_workflow_status").Inc()
+	}
+	return err
 }

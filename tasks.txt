@@ -4,3 +4,6 @@
 4. Implement worker stopping midway when one of the parent tasks in failed after maxTries. 
 5. Sweeper functionality. it tasks are pending/running for too long mark them as dead/failed.
 6. Current task can be tak
+7. Reduce broker from 2 to 1.
+8. Implement workflow status check api.
+9. Metrics.

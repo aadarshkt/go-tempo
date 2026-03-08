@@ -1,0 +1,108 @@
+groups:
+  - name: go_tempo_alerts
+    interval: 30s
+    rules:
+      # HTTP Error Rate Alert
+      - alert: HighHTTPErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP error rate detected"
+          description: "HTTP 5xx error rate is above 5% (current: {{ $value | humanizePercentage }})"
+
+      # Coordinator DAG Resolution Slow
+      - alert: SlowDAGResolution
+        expr: histogram_quantile(0.95, rate(coordinator_dag_resolution_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow DAG dependency resolution"
+          description: "95th percentile DAG resolution time is above 1s (current: {{ $value }}s)"
+
+      # Redis Queue Depth Growing
+      - alert: HighQueueDepth
+        expr: redis_queue_depth > 10000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis queue depth is very high"
+          description: "Queue has {{ $value }} pending tasks, indicating worker backlog"
+
+      # Database Connection Pool Exhaustion
+      - alert: DBConnectionPoolExhaustion
+        expr: |
+          (
+            db_connection_pool_size{state="in_use"}
+            /
+            (db_connection_pool_size{state="in_use"} + db_connection_pool_size{state="idle"})
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "Connection pool is {{ $value | humanizePercentage }} utilized"
+
+      # Worker Claim Failure Spike
+      - alert: HighWorkerClaimFailures
+        expr: |
+          (
+            rate(worker_claim_failures_total[5m])
+            /
+            (rate(worker_tasks_processed_total[5m]) + rate(worker_claim_failures_total[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High worker task claim failure rate"
+          description: "{{ $value | humanizePercentage }} of claim attempts are failing due to optimistic lock conflicts"
+
+      # Database Query Errors
+      - alert: HighDBErrorRate
+        expr: sum(rate(db_query_errors_total[5m])) > 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High database error rate"
+          description: "Database queries are failing at {{ $value }} errors/sec"
+
+      # Redis Connection Errors
+      - alert: RedisConnectionErrors
+        expr: rate(redis_connection_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis connection errors detected"
+          description: "Redis operations failing at {{ $value }} errors/sec"
+
+      # No Tasks Processing (System Idle)
+      - alert: NoTasksProcessing
+        expr: rate(worker_tasks_processed_total[10m]) == 0 and redis_queue_depth > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Workers appear idle despite pending tasks"
+          description: "Queue has tasks but no processing for 10 minutes"
+
+      # Task Retry Exhaustion Rate
+      - alert: HighRetryExhaustionRate
+        expr: rate(task_retry_exhaustion_total[10m]) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rate of tasks exhausting retries"
+          description: "{{ $value }} tasks/sec are failing permanently after all retries"

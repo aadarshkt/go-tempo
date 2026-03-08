@@ -4,7 +4,9 @@ import (
 	"context"
 	"go-tempo/internal/core/ports"
 	"go-tempo/internal/domain"
+	"go-tempo/internal/metrics"
 	"log"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -53,9 +55,13 @@ func (c *Coordinator) Start(ctx context.Context) {
 			return
 
 		case event := <-eventChannel:
+			// Track completed event metric
+			metrics.CoordinatorEventsProcessedTotal.WithLabelValues("completed").Inc()
 			c.handleTaskCompleted(ctx, event)
 
 		case event := <-terminationChannel:
+			// Track terminated event metric
+			metrics.CoordinatorEventsProcessedTotal.WithLabelValues("terminated").Inc()
 			c.handleTaskTerminated(ctx, event)
 		}
 	}
@@ -64,6 +70,12 @@ func (c *Coordinator) Start(ctx context.Context) {
 // handleTaskCompleted executes Kahn's Algorithm
 func (c *Coordinator) handleTaskCompleted(ctx context.Context, event domain.TaskCompletedEvent) {
 	log.Printf("Coordinator: Task %s (%s) completed. Checking children...", event.RefID, event.TaskID)
+
+	// Track DAG resolution time
+	start := time.Now()
+	defer func() {
+		metrics.CoordinatorDAGResolutionDuration.Observe(time.Since(start).Seconds())
+	}()
 
 	// 1. The Atomic Update: Tell Postgres this RefID is done.
 	readyTaskIDs, err := c.taskRepo.DecrementAndGetReadyTasks(ctx, event.ExecutionID, event.RefID)
@@ -80,6 +92,13 @@ func (c *Coordinator) handleTaskCompleted(ctx context.Context, event domain.Task
 		if err != nil {
 			log.Printf("Failed to push task %s to queue: %v\n", taskID, err)
 			// Note: In production, you would add a retry mechanism here
+		}
+	}
+
+	// Track tasks unblocked metric
+	if len(readyTaskIDs) > 0 {
+		for range readyTaskIDs {
+			metrics.CoordinatorTasksUnblockedTotal.Inc()
 		}
 	}
 
@@ -115,12 +134,21 @@ func (c *Coordinator) checkIfWorkflowFinished(ctx context.Context, executionID u
 	}
 
 	log.Printf("Workflow %s marked as COMPLETED", executionID)
+	
+	// Track workflow completion metric
+	metrics.CoordinatorWorkflowCompletionsTotal.WithLabelValues("completed").Inc()
 }
 
 // handleTaskTerminated propagates skip hints to child tasks when a task is terminated (failed or skipped)
 func (c *Coordinator) handleTaskTerminated(ctx context.Context, event domain.TaskTerminatedEvent) {
 	log.Printf("Coordinator: Task %s (%s) terminated with type '%s': %s. Propagating skip hint...", 
 		event.RefID, event.TaskID, event.Type, event.Error)
+
+	// Track DAG resolution time
+	start := time.Now()
+	defer func() {
+		metrics.CoordinatorDAGResolutionDuration.Observe(time.Since(start).Seconds())
+	}()
 
 	// Use the specialized method that sets skip_hint=true for children
 	readyTaskIDs, err := c.taskRepo.DecrementAndSetSkipHint(ctx, event.ExecutionID, event.RefID)
@@ -137,6 +165,19 @@ func (c *Coordinator) handleTaskTerminated(ctx context.Context, event domain.Tas
 		if err != nil {
 			log.Printf("Failed to push task %s to queue: %v\n", taskID, err)
 		}
+	}
+
+	// Track skip propagation metrics
+	if len(readyTaskIDs) > 0 {
+		for range readyTaskIDs {
+			metrics.CoordinatorSkipPropagationsTotal.Inc()
+			metrics.CoordinatorTasksUnblockedTotal.Inc()
+		}
+	}
+	
+	// Track failed workflow metric if this is a failed task (not skipped)
+	if event.Type == domain.TaskTerminationFailed {
+		metrics.CoordinatorWorkflowCompletionsTotal.WithLabelValues("failed").Inc()
 	}
 
 	// No workflow completion check - workflow is already marked FAILED by worker for failed tasks

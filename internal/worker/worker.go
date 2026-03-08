@@ -3,9 +3,12 @@ package worker
 import (
 	"context"
 	"log"
+	"strconv"
+	"time"
 
 	"go-tempo/internal/core/ports"
 	"go-tempo/internal/domain"
+	"go-tempo/internal/metrics"
 
 	"github.com/google/uuid"
 )
@@ -52,6 +55,10 @@ func (w *Worker) ProcessNextTask(ctx context.Context) {
 		return
 	}
 
+	// Track queue wait time
+	queueWaitTime := time.Since(task.CreatedAt).Seconds()
+	metrics.WorkerQueueWaitTime.Observe(queueWaitTime)
+
 	// 2.5. CHECK SKIP HINT: If task is marked for skipping, handle it immediately
 	if task.SkipHint {
 		log.Printf("Worker %s skipping task %s (parent task failed)", w.workerID, task.RefID)
@@ -72,6 +79,9 @@ func (w *Worker) ProcessNextTask(ctx context.Context) {
 		}
 		w.eventBus.PublishTaskTerminated(ctx, terminationEvent)
 		log.Printf("Worker successfully skipped task %s", task.RefID)
+		
+		// Track skipped task metric
+		metrics.WorkerTasksProcessedTotal.WithLabelValues(task.Action, "skipped").Inc()
 		return
 	}
 
@@ -79,17 +89,27 @@ func (w *Worker) ProcessNextTask(ctx context.Context) {
 	err = w.repo.ClaimTask(ctx, task.ID, w.workerID, task.Version)
 	if err != nil {
 		log.Printf("Worker %s failed to claim task %s (already claimed by another worker): %v", w.workerID, task.RefID, err)
+		// Track claim failure metric
+		metrics.WorkerClaimFailuresTotal.Inc()
 		return
 	}
 	// Update in-memory version to match DB after claim (version was incremented in DB)
 	task.Version++
 	log.Printf("Worker %s claimed task %s", w.workerID, task.RefID)
+	
+	// Track active task (increment on claim)
+	metrics.WorkerActiveTasks.WithLabelValues(w.workerID).Inc()
+	defer metrics.WorkerActiveTasks.WithLabelValues(w.workerID).Dec()
 
 	// 4. EXECUTE: Find the right function and run it
 	handler, exists := w.registry[task.Action]
 	if !exists {
 		log.Printf("Worker unknown action: %s", task.Action)
 		w.repo.MarkFailed(ctx, task.ID, "unknown action") // Mark as failed in DB
+		
+		// Track registry error metric
+		metrics.WorkerRegistryErrorsTotal.WithLabelValues(task.Action).Inc()
+		metrics.WorkerTasksProcessedTotal.WithLabelValues(task.Action, "failed").Inc()
 		
 		// Publish termination event (type: failed)
 		terminationEvent := domain.TaskTerminatedEvent{
@@ -104,13 +124,21 @@ func (w *Worker) ProcessNextTask(ctx context.Context) {
 		return
 	}
 
+	// Track task execution time
+	execStart := time.Now()
 	output, err := handler(ctx, []byte(task.Input))
+	execDuration := time.Since(execStart).Seconds()
+	metrics.WorkerTaskDuration.WithLabelValues(task.Action).Observe(execDuration)
+	
 	if err != nil {
 		log.Printf("Worker task %s failed: %v", task.RefID, err)
 		
 		// Check if task can be retried
 		if task.CanRetry(task.MaxRetries) {
 			log.Printf("Worker retrying task %s (retry %d/%d)", task.RefID, task.RetryCount+1, task.MaxRetries)
+			
+			// Track retry metric
+			metrics.WorkerRetriesTotal.WithLabelValues(task.Action, strconv.Itoa(task.RetryCount+1)).Inc()
 			
 			// Increment retry count and reset to PENDING
 			retryErr := w.repo.IncrementRetryCount(ctx, task.ID, task.Version)
@@ -131,6 +159,10 @@ func (w *Worker) ProcessNextTask(ctx context.Context) {
 		log.Printf("Worker task %s exhausted all retries, marking as failed", task.RefID)
 		w.repo.MarkFailed(ctx, task.ID, err.Error())
 		
+		// Track retry exhaustion and failed task metrics
+		metrics.TaskRetryExhaustionTotal.WithLabelValues(task.Action).Inc()
+		metrics.WorkerTasksProcessedTotal.WithLabelValues(task.Action, "failed").Inc()
+		
 		// Mark workflow as failed
 		w.workflowRepo.UpdateStatus(ctx, task.ExecutionID, string(domain.WorkflowFailed))
 		
@@ -148,6 +180,9 @@ func (w *Worker) ProcessNextTask(ctx context.Context) {
 
 	// 5. COMPLETE: Save output and publish event
 	w.repo.MarkCompleted(ctx, task.ID, output)
+
+	// Track successful task metric
+	metrics.WorkerTasksProcessedTotal.WithLabelValues(task.Action, "success").Inc()
 
 	event := domain.TaskCompletedEvent{
 		ExecutionID: task.ExecutionID,

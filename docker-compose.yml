@@ -28,7 +28,7 @@ services:
 
   # 3. Your Go Workflow Engine Service
   app:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile
     container_name: workflow_api
@@ -37,14 +37,49 @@ services:
     environment:
       # Notice the hosts are "postgres" and "redis" (the service names), not "localhost"
       - DB_URL=host=postgres user=postgres password=postgres dbname=workflow_db port=5432 sslmode=disable
-      - REDIS_ADDR=redis:6379 
+      - REDIS_ADDR=redis:6379
     depends_on:
       postgres:
         condition: service_healthy # Waits for DB to be fully ready
       redis:
         condition: service_started
 
+  # 4. Prometheus Monitoring Service
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: workflow_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    depends_on:
+      - app
+
+  # 5. Grafana Visualization Service
+  grafana:
+    image: grafana/grafana:latest
+    container_name: workflow_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
 # Define the named volumes so data survives container restarts
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:

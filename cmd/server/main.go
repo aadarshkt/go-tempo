@@ -3,14 +3,19 @@ package main
 import (
 	"context"
 	"go-tempo/internal/api/handler"
+	"go-tempo/internal/api/middleware"
 	"go-tempo/internal/coordinator"
 	"go-tempo/internal/core/postgres/repository"
 	"go-tempo/internal/infrastructure/redis"
+	"go-tempo/internal/metrics"
 	"go-tempo/internal/service"
 	"go-tempo/internal/worker"
 	"log"
+	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -32,6 +37,9 @@ func main() {
     sqlDB.SetMaxIdleConns(10)
     sqlDB.SetConnMaxLifetime(0) // 0 means connections are reused forever
 
+    // Start DB connection pool metrics collector
+    metrics.StartDBPoolCollector(sqlDB, 10*time.Second)
+
     // 2. Initialize repository
     taskRepo := repository.NewTaskRepository(db)
     workflowRepo := repository.NewWorkflowRepository(db)
@@ -42,6 +50,9 @@ func main() {
     // 4. Create the Queue and Bus
     taskQueue := redis.NewRedisQueue(rdb)
     eventBus := redis.NewRedisEventBus(rdb)
+
+    // Start Redis queue depth metrics collector
+    metrics.StartRedisQueueDepthCollector(rdb, "workflow:queue:pending", 10*time.Second)
 
     // 5. Initialize service with repository and queue
     workflowSvc := service.NewWorkflowService(taskRepo, taskQueue)
@@ -62,6 +73,29 @@ func main() {
 
     // 10. Set up routes
     router := gin.Default()
+    
+    // Add Prometheus middleware
+    router.Use(middleware.PrometheusMiddleware())
+
+    // Health and readiness endpoints
+    router.GET("/health", func(c *gin.Context) {
+        c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+    })
+    router.GET("/readiness", func(c *gin.Context) {
+        // Check if dependencies are ready
+        if err := rdb.Ping(context.Background()).Err(); err != nil {
+            c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not ready", "error": "redis unavailable"})
+            return
+        }
+        if err := sqlDB.Ping(); err != nil {
+            c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not ready", "error": "database unavailable"})
+            return
+        }
+        c.JSON(http.StatusOK, gin.H{"status": "ready"})
+    })
+
+    // Metrics endpoint
+    router.GET("/metrics", gin.WrapH(promhttp.Handler()))
     
     api := router.Group("/api/v1")
     {

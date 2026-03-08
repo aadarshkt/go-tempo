@@ -2,8 +2,10 @@ package handler
 
 import (
 	"go-tempo/internal/api/dto"
+	"go-tempo/internal/metrics"
 	"go-tempo/internal/service"
 	"net/http"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -28,6 +30,9 @@ func (h *WorkflowHandler) SubmitWorkflow(c *gin.Context) {
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
     }
+
+    // Track workflow submission metric
+    metrics.WorkflowsSubmittedTotal.WithLabelValues("default").Inc()
 
     c.JSON(http.StatusCreated, dto.CreateWorkflowResponse{ID: executionID})
 }

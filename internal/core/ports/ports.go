@@ -49,10 +49,6 @@ type TaskRepository interface {
 	// "Find all tasks where 'parentName' is in their dependencies list"
 	FindChildren(ctx context.Context, executionID uuid.UUID, parentName string) ([]domain.Task, error)
 
-	// 5. The "Check" Logic
-	// "Are there any parents for this task that are NOT completed?"
-	CountPendingParents(ctx context.Context, executionID uuid.UUID, parentNames []string) (int64, error)
-
 	// 6. Update Final Status
 	MarkCompleted(ctx context.Context, taskID uuid.UUID, output datatypes.JSON) error
 	MarkFailed(ctx context.Context, taskID uuid.UUID, errMessage string) error

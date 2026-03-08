@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"go-tempo/internal/domain" // Update with your actual module path
+	"go-tempo/internal/metrics"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -30,7 +31,14 @@ func (b *RedisEventBus) PublishTaskCompleted(ctx context.Context, event domain.T
 		return err
 	}
 	
-	return b.client.Publish(ctx, b.channel, payload).Err()
+	err = b.client.Publish(ctx, b.channel, payload).Err()
+	if err != nil {
+		metrics.RedisConnectionErrorsTotal.WithLabelValues("publish").Inc()
+		return err
+	}
+	
+	metrics.RedisPubSubMessagesPublishedTotal.WithLabelValues("completed").Inc()
+	return nil
 }
 
 // PublishTaskTerminated broadcasts a task termination event (failed or skipped)
@@ -40,7 +48,14 @@ func (b *RedisEventBus) PublishTaskTerminated(ctx context.Context, event domain.
 		return err
 	}
 	
-	return b.client.Publish(ctx, b.terminationChannel, payload).Err()
+	err = b.client.Publish(ctx, b.terminationChannel, payload).Err()
+	if err != nil {
+		metrics.RedisConnectionErrorsTotal.WithLabelValues("publish").Inc()
+		return err
+	}
+	
+	metrics.RedisPubSubMessagesPublishedTotal.WithLabelValues("terminated").Inc()
+	return nil
 }
 
 // SubscribeToEvents opens a continuous stream for the Coordinator
@@ -63,8 +78,11 @@ func (b *RedisEventBus) SubscribeToEvents(ctx context.Context) (<-chan domain.Ta
 				if err == nil {
 					var event domain.TaskCompletedEvent
 					if err := json.Unmarshal([]byte(msg.Payload), &event); err == nil {
+						metrics.RedisPubSubMessagesReceivedTotal.WithLabelValues("completed").Inc()
 						msgChan <- event
 					}
+				} else {
+					metrics.RedisConnectionErrorsTotal.WithLabelValues("subscribe").Inc()
 				}
 			}
 		}
@@ -91,8 +109,11 @@ func (b *RedisEventBus) SubscribeToTerminationEvents(ctx context.Context) (<-cha
 				if err == nil {
 					var event domain.TaskTerminatedEvent
 					if err := json.Unmarshal([]byte(msg.Payload), &event); err == nil {
+						metrics.RedisPubSubMessagesReceivedTotal.WithLabelValues("terminated").Inc()
 						msgChan <- event
 					}
+				} else {
+					metrics.RedisConnectionErrorsTotal.WithLabelValues("subscribe").Inc()
 				}
 			}
 		}
